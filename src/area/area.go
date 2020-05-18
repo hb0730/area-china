@@ -1,46 +1,45 @@
 package area
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/axgle/mahonia"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"regexp"
+	"time"
 )
 
-/**
-省
-*/
+// 省份正则表达式
 // <td><a href='11.html'>北京市<br/></a></td>
 const pReg string = "<td><a href='(.*?).html'>(.*?)<br/></a></td>"
 
-/**
-市
-*/
+// 市级与县级表达式
 const casReg string = "<tr class='.*?'><td><a href=.*?>(.*?)</a></td><td><a href=.*?>(.*?)</a></td></tr>"
-
-// <tr class='countytr'><td>130101000000</td><td>市辖区</td></tr>
-const vReg string = "<tr class='.*?'><td>(.*?)</td><td>.*?</td><td>(.*?)</td></tr>"
 
 //Start
 func Start() {
 	province := getProvince()
-	for _, p := range province {
-		getCity(&p)
-		for _, c := range p.Areas {
-			getCounty(&c)
-			for _, v := range c.Areas {
+	for i1, p := range province {
+		city := getCity(&p)
+		province[i1] = p
+		for i2, c := range city {
+			county := getCounty(&c)
+			city[i2] = c
+			for _, v := range county {
 				fmt.Printf("%s %s %s \n", p.Name, c.Name, v.Name)
 			}
 		}
 	}
-	// 获取市
+	// 导出json
+	WriteJson(province)
+
 }
 
-/**
-省
-*/
+// 获取省级地区
+// @params
+// @return areas 地区
 func getProvince() []Area {
 	host := "http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm"
 	url := "/2019/index.html"
@@ -48,9 +47,9 @@ func getProvince() []Area {
 	return areas
 }
 
-/**
-市
-*/
+// 获取市级地区
+// @params area 上级地区
+// @return 市级地区
 func getCity(area *Area) []Area {
 	host := "http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm"
 	url := "/2019/" + area.Code + ".html"
@@ -59,18 +58,22 @@ func getCity(area *Area) []Area {
 	return areas
 }
 
-/**
-
- */
-func getCounty(area *Area) *Area {
+// @Params area 上级地区
+// @return areas 地区
+func getCounty(area *Area) []Area {
 	host := "http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm"
 	cCode := area.Code[0:2]
 	url := "/2019/" + cCode + "/" + area.Code + ".html"
 	areas := fetch(host, url, casReg, 6)
 	area.Areas = areas
-	return area
+	return areas
 }
 
+// 获取网页地区信息
+// @params host
+// @params route
+// @params reg 表达式
+// @params codeLen 编码长度
 func fetch(host string, route string, reg string, codeLen int) []Area {
 	client := &http.Client{}
 	request, err := http.NewRequest("GET", host+route, nil)
@@ -98,8 +101,33 @@ func fetch(host string, route string, reg string, codeLen int) []Area {
 	return areas
 }
 
+// 写入json file
+// @params areas 地区
+func WriteJson(area []Area) {
+	bytes, err := json.Marshal(area)
+	if err != nil {
+		fmt.Println(err.Error())
+		os.Exit(0)
+	}
+	fileName := "dist/area-%d.json"
+	currentTime := time.Now().UnixNano() / 1e6
+	fileName = fmt.Sprintf(fileName, currentTime)
+	err = ioutil.WriteFile(fileName, bytes, os.ModeAppend)
+	if err != nil {
+		return
+	}
+
+}
+
+// 写入csv
+// @params areas 地区
+func WriteCsv(area []Area) {
+
+}
+
+// 地区
 type Area struct {
-	Code  string
-	Name  string
-	Areas []Area
+	Code  string `json:"code"`
+	Name  string `json:"name"`
+	Areas []Area `json:"children"`
 }
