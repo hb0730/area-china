@@ -43,28 +43,32 @@ func Start() {
 func getProvince() []Area {
 	host := "http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm"
 	url := "/2019/index.html"
-	areas := fetch(host, url, pReg, 2)
+	areas := fetch(host, url, pReg)
 	return areas
 }
 
 // 获取市级地区
 // @params area 上级地区
 // @return 市级地区
+// issues: https://github.com/modood/Administrative-divisions-of-China/issues/57
 func getCity(area *Area) []Area {
 	host := "http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm"
-	url := "/2019/" + area.Code + ".html"
-	areas := fetch(host, url, casReg, 4)
+	cCode := area.Code[0:2]
+	url := "/2019/" + cCode + ".html"
+	areas := fetch(host, url, casReg)
 	area.Areas = areas
 	return areas
 }
 
 // @Params area 上级地区
 // @return areas 地区
+// issues: https://github.com/modood/Administrative-divisions-of-China/issues/57
 func getCounty(area *Area) []Area {
 	host := "http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm"
 	cCode := area.Code[0:2]
-	url := "/2019/" + cCode + "/" + area.Code + ".html"
-	areas := fetch(host, url, casReg, 6)
+	aCode := area.Code[0:4]
+	url := "/2019/" + cCode + "/" + aCode + ".html"
+	areas := fetch(host, url, casReg)
 	area.Areas = areas
 	return areas
 }
@@ -74,7 +78,7 @@ func getCounty(area *Area) []Area {
 // @params route
 // @params reg 表达式
 // @params codeLen 编码长度
-func fetch(host string, route string, reg string, codeLen int) []Area {
+func fetch(host string, route string, reg string) []Area {
 	client := &http.Client{}
 	request, err := http.NewRequest("GET", host+route, nil)
 	if err != nil {
@@ -96,7 +100,7 @@ func fetch(host string, route string, reg string, codeLen int) []Area {
 	allString := compile.FindAllStringSubmatch(out, -1)
 	areas := make([]Area, len(allString))
 	for i, match := range allString {
-		areas[i] = Area{match[1][0:codeLen], match[2], nil}
+		areas[i] = Area{match[1], match[2], nil}
 	}
 	return areas
 }
