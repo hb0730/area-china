@@ -79,23 +79,7 @@ func getCounty(area *Area) []Area {
 // @params reg 表达式
 // @params codeLen 编码长度
 func fetch(host string, route string, reg string) []Area {
-	client := &http.Client{}
-	request, err := http.NewRequest("GET", host+route, nil)
-	if err != nil {
-		fmt.Println("fatal error ", err.Error())
-		os.Exit(0)
-	}
-	request.Header.Add("Accept-Language", "")
-	request.Header.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36")
-	request.Header.Add("Accept-Charset", "GBK,utf-8;q=0.7,*;q=0.3")
-	response, err := client.Do(request)
-	if err != nil || response == nil {
-		fmt.Print(err.Error())
-	}
-	defer response.Body.Close()
-	byte2, _ := ioutil.ReadAll(response.Body)
-	env := mahonia.NewDecoder("GBK")
-	out := env.ConvertString(string(byte2))
+	out := getBody(host, route)
 	compile := regexp.MustCompile(reg)
 	allString := compile.FindAllStringSubmatch(out, -1)
 	areas := make([]Area, len(allString))
@@ -103,6 +87,40 @@ func fetch(host string, route string, reg string) []Area {
 		areas[i] = Area{match[1], match[2], nil}
 	}
 	return areas
+}
+
+func getBody(host string, route string) string {
+	for true {
+		client := &http.Client{}
+		request, err := http.NewRequest("GET", host+route, nil)
+		if err != nil {
+			fmt.Println("fatal error ", err.Error())
+			os.Exit(0)
+		}
+		request.Header.Add("Accept-Language", "")
+		request.Header.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36")
+		request.Header.Add("Accept-Charset", "GBK,utf-8;q=0.7,*;q=0.3")
+		response, err := client.Do(request)
+		defer response.Body.Close()
+
+		if err != nil || response == nil {
+			fmt.Print(err.Error())
+			panic(err)
+		}
+		code := response.StatusCode
+		// 熔断或者超时或者404等
+		if code != 200 {
+			fmt.Printf("'[Error] %d 休眠 30 秒重试 \n", code)
+			time.Sleep(time.Duration(30) * time.Second)
+		} else {
+			byte2, _ := ioutil.ReadAll(response.Body)
+			env := mahonia.NewDecoder("GBK")
+			out := env.ConvertString(string(byte2))
+			return out
+		}
+	}
+
+	return ""
 }
 
 // 写入json file
