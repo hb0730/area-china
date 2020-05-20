@@ -90,8 +90,8 @@ func fetch(host string, route string, reg string) []Area {
 }
 
 func getBody(host string, route string) string {
+	client := &http.Client{}
 	for true {
-		client := &http.Client{}
 		request, err := http.NewRequest("GET", host+route, nil)
 		if err != nil {
 			fmt.Println("fatal error ", err.Error())
@@ -101,12 +101,12 @@ func getBody(host string, route string) string {
 		request.Header.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36")
 		request.Header.Add("Accept-Charset", "GBK,utf-8;q=0.7,*;q=0.3")
 		response, err := client.Do(request)
-		defer response.Body.Close()
-
 		if err != nil || response == nil {
 			fmt.Print(err.Error())
 			panic(err)
 		}
+		defer response.Body.Close()
+
 		code := response.StatusCode
 		// 熔断或者超时或者404等
 		if code != 200 {
