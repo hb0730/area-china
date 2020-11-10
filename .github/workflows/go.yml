@@ -1,25 +1,19 @@
-name: Go
-
+name: build
 on:
   push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
-
-jobs:
+    branches:
+      - master
+job:
   build:
     name: Build
     runs-on: ubuntu-latest
     steps:
-
-      - name: Set up Go 1.x
+      - name: Set up go
         uses: actions/setup-go@v2
         with:
           go-version: ^1.13
-
-      - name: Check out code into the Go module directory
+      - name: Check out code
         uses: actions/checkout@v2
-
       - name: Get dependencies
         run: |
           go get -v -t -d ./...
@@ -27,9 +21,5 @@ jobs:
               curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
               dep ensure
           fi
-
       - name: Build
         run: go build -v .
-
-      - name: Test
-        run: go test -v .
