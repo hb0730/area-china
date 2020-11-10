@@ -19,8 +19,9 @@ const pReg string = "<td><a href='(.*?).html'>(.*?)<br/></a></td>"
 const casReg string = "<tr class='.*?'><td><a href=.*?>(.*?)</a></td><td><a href=.*?>(.*?)</a></td></tr>"
 
 //Start
-func Start() {
-	province := getProvince()
+//@params year 抓取年份
+func Start(year string) {
+	province := getProvince(year)
 	for i1, p := range province {
 		city := getCity(&p)
 		province[i1] = p
@@ -38,11 +39,12 @@ func Start() {
 }
 
 // 获取省级地区
-// @params
+// @params year 抓取年份
 // @return areas 地区
-func getProvince() []Area {
+func getProvince(year string) []Area {
 	host := "http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm"
-	url := "/2019/index.html"
+	// /2019/index.html
+	url := fmt.Sprintf("/%s/%s", year, "index.html")
 	areas := fetch(host, url, pReg)
 	return areas
 }
