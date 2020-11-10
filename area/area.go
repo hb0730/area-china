@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/axgle/mahonia"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -20,7 +21,8 @@ const casReg string = "<tr class='.*?'><td><a href=.*?>(.*?)</a></td><td><a href
 
 //Start
 //@params year 抓取年份
-func Start(year string) {
+//@return 已经完成的数据（树形结构）
+func Start(year string) []Area {
 	province := getProvince(year)
 	for i1, p := range province {
 		city := getCity(&p)
@@ -35,7 +37,7 @@ func Start(year string) {
 	}
 	// 导出json
 	WriteJson(province)
-
+	return province
 }
 
 // 获取省级地区
@@ -93,7 +95,7 @@ func fetch(host string, route string, reg string) []Area {
 
 func getBody(host string, route string) string {
 	client := &http.Client{}
-	for true {
+	for {
 		request, err := http.NewRequest("GET", host+route, nil)
 		if err != nil {
 			fmt.Println("fatal error ", err.Error())
@@ -104,25 +106,29 @@ func getBody(host string, route string) string {
 		request.Header.Add("Accept-Charset", "GBK,utf-8;q=0.7,*;q=0.3")
 		response, err := client.Do(request)
 		if err != nil || response == nil {
-			fmt.Print(err.Error())
+			fmt.Println("fatal error")
 			panic(err)
 		}
-		defer response.Body.Close()
-
 		code := response.StatusCode
 		// 熔断或者超时或者404等
 		if code != 200 {
 			fmt.Printf("'[Error] %d 休眠 30 秒重试 \n", code)
 			time.Sleep(time.Duration(30) * time.Second)
 		} else {
-			byte2, _ := ioutil.ReadAll(response.Body)
-			env := mahonia.NewDecoder("GBK")
-			out := env.ConvertString(string(byte2))
-			return out
+			body := response.Body
+			return readBody(body)
 		}
 	}
-
 	return ""
+}
+
+// 读取body
+func readBody(body io.ReadCloser) string {
+	byte2, _ := ioutil.ReadAll(body)
+	defer body.Close()
+	env := mahonia.NewDecoder("GBK")
+	out := env.ConvertString(string(byte2))
+	return out
 }
 
 // 写入json file
@@ -143,15 +149,9 @@ func WriteJson(area []Area) {
 
 }
 
-// 写入csv
-// @params areas 地区
-func WriteCsv(area []Area) {
-
-}
-
 // 地区
 type Area struct {
-	Code  string `json:"code"`
-	Name  string `json:"name"`
-	Areas []Area `json:"children"`
+	Code  string `json:"code"`     //编码
+	Name  string `json:"name"`     //名称
+	Areas []Area `json:"children"` //下级行政
 }
