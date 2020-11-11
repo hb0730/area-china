@@ -19,11 +19,16 @@ const pReg string = "<td><a href='(.*?).html'>(.*?)<br/></a></td>"
 // 市级与县级表达式
 const casReg string = "<tr class='.*?'><td><a href=.*?>(.*?)</a></td><td><a href=.*?>(.*?)</a></td></tr>"
 
+const host = "http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm"
+
+var _year string
+
 //Start
 //@params year 抓取年份
 //@return 已经完成的数据（树形结构）
 func Start(year string) []Area {
-	province := getProvince(year)
+	_year = year
+	province := getProvince()
 	for i1, p := range province {
 		city := getCity(&p)
 		province[i1] = p
@@ -41,12 +46,10 @@ func Start(year string) []Area {
 }
 
 // 获取省级地区
-// @params year 抓取年份
 // @return areas 地区
-func getProvince(year string) []Area {
-	host := "http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm"
+func getProvince() []Area {
 	// /2019/index.html
-	url := fmt.Sprintf("/%s/%s", year, "index.html")
+	url := fmt.Sprintf("/%s/%s", _year, "index.html")
 	areas := fetch(host, url, pReg)
 	return areas
 }
@@ -56,9 +59,9 @@ func getProvince(year string) []Area {
 // @return 市级地区
 // issues: https://github.com/modood/Administrative-divisions-of-China/issues/57
 func getCity(area *Area) []Area {
-	host := "http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm"
 	cCode := area.Code[0:2]
-	url := "/2019/" + cCode + ".html"
+	//url := "/2019/" + cCode + ".html"
+	url := fmt.Sprintf("/%s/%s.html", _year, cCode)
 	areas := fetch(host, url, casReg)
 	area.Areas = areas
 	return areas
@@ -68,10 +71,10 @@ func getCity(area *Area) []Area {
 // @return areas 地区
 // issues: https://github.com/modood/Administrative-divisions-of-China/issues/57
 func getCounty(area *Area) []Area {
-	host := "http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm"
 	cCode := area.Code[0:2]
 	aCode := area.Code[0:4]
-	url := "/2019/" + cCode + "/" + aCode + ".html"
+	//url := "/2019/" + cCode + "/" + aCode + ".html"
+	url := fmt.Sprintf("/%s/%s/%s.html", _year, cCode, aCode)
 	areas := fetch(host, url, casReg)
 	area.Areas = areas
 	return areas
@@ -79,7 +82,7 @@ func getCounty(area *Area) []Area {
 
 // 获取网页地区信息
 // @params host
-// @params route
+// @params route path
 // @params reg 表达式
 // @params codeLen 编码长度
 func fetch(host string, route string, reg string) []Area {
@@ -112,7 +115,7 @@ func getBody(host string, route string) string {
 		code := response.StatusCode
 		// 熔断或者超时或者404等
 		if code != 200 {
-			fmt.Printf("'[Error] %d 休眠 30 秒重试 \n", code)
+			fmt.Printf("[Error] %d 休眠 30 秒重试 \n", code)
 			time.Sleep(time.Duration(30) * time.Second)
 		} else {
 			body := response.Body
