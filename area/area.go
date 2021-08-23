@@ -15,12 +15,14 @@ import (
 )
 
 const (
-	// 省份正则表达式
+	// 省级
 	// <td><a href='11.html'>北京市<br/></a></td>
 	pReg string = "<td><a href='(.*?).html'>(.*?)<br/></a></td>"
-	// 市级与县级表达式
+	// 地级，县级，乡级
 	casReg string = "<tr class='.*?'><td><a href=.*?>(.*?)</a></td><td><a href=.*?>(.*?)</a></td></tr>"
-	host          = "http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm"
+	//村级
+	vReg string = "<tr class='.*?'><td>(.*?)</td><td>.*?</td><td>(.*?)</td></tr>"
+	host        = "http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm"
 
 	//城乡规划默认编码长度
 	defaultLength = "00000000000000000"
@@ -58,8 +60,7 @@ func Start(year string, length int) []Area {
 	return province
 }
 
-// 获取省级地区
-// @return areas 地区
+//getProvince 获取省级地区,编码规则是1~2位
 func getProvince() []Area {
 	// /2019/index.html
 	url := fmt.Sprintf("/%s/%s", _year, "index.html")
@@ -67,30 +68,36 @@ func getProvince() []Area {
 	return areas
 }
 
-// 获取市级地区
-// @params area 上级地区
-// @return 市级地区
-// issues: https://github.com/modood/Administrative-divisions-of-China/issues/57
+//getCity 获取市级地区 编码规则是3~4位
 func getCity(area *Area) []Area {
-	cCode := area.Code[0:2]
+	pCode := area.Code[0:2]
 	//url := "/2019/" + cCode + ".html"
-	url := fmt.Sprintf("/%s/%s.html", _year, cCode)
+	url := fmt.Sprintf("/%s/%s.html", _year, pCode)
 	areas := fetch(host, url, casReg)
 	area.Areas = areas
 	return areas
 }
 
-// @Params area 上级地区
-// @return areas 地区
-// issues: https://github.com/modood/Administrative-divisions-of-China/issues/57
+//getCounty 获取县级地区 编码规则是5~6位
 func getCounty(area *Area) []Area {
-	cCode := area.Code[0:2]
-	aCode := area.Code[0:4]
+	pCode := area.Code[0:2]
+	cCode := area.Code[0:4]
 	//url := "/2019/" + cCode + "/" + aCode + ".html"
-	url := fmt.Sprintf("/%s/%s/%s.html", _year, cCode, aCode)
+	url := fmt.Sprintf("/%s/%s/%s.html", _year, pCode, cCode)
 	areas := fetch(host, url, casReg)
 	area.Areas = areas
 	return areas
+}
+
+//getStreet 抓取街道
+func getStreet(area *Area) []Area {
+	pCode := area.Code[:2]
+	cCodeSuffix := area.Code[2:4]
+	//url:="/2019/11/01/110101.html"
+	url := fmt.Sprintf("/%s/%s/%s/%s.html", _year, pCode, cCodeSuffix, area.Code)
+	areas := fetch(host, url, casReg)
+	area.Areas = areas
+	return nil
 }
 
 // 获取网页地区信息
@@ -131,6 +138,7 @@ func getBody(host string, route string) string {
 			"Accept-Encoding": "gzip, deflate",
 		}
 		req.SetHeaders(headers)
+		time.Sleep(time.Second * 2)
 		err = req.Do()
 		if err != nil {
 			fmt.Println("fatal error")

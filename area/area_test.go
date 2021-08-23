@@ -36,3 +36,12 @@ func TestWriteJson(t *testing.T) {
 	_year = "2020"
 	WriteJson(nil)
 }
+
+func Test_getStreet(t *testing.T) {
+	_year = "2020"
+	a := &Area{
+		Code: "110101",
+		Name: "东城区",
+	}
+	getStreet(a)
+}
