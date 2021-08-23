@@ -1,32 +1,45 @@
 package area
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/axgle/mahonia"
-	"io"
+	"github.com/hb0730/go-request"
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/transform"
 	"io/ioutil"
-	"net/http"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 )
 
-// 省份正则表达式
-// <td><a href='11.html'>北京市<br/></a></td>
-const pReg string = "<td><a href='(.*?).html'>(.*?)<br/></a></td>"
+const (
+	// 省份正则表达式
+	// <td><a href='11.html'>北京市<br/></a></td>
+	pReg string = "<td><a href='(.*?).html'>(.*?)<br/></a></td>"
+	// 市级与县级表达式
+	casReg string = "<tr class='.*?'><td><a href=.*?>(.*?)</a></td><td><a href=.*?>(.*?)</a></td></tr>"
+	host          = "http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm"
 
-// 市级与县级表达式
-const casReg string = "<tr class='.*?'><td><a href=.*?>(.*?)</a></td><td><a href=.*?>(.*?)</a></td></tr>"
-
-const host = "http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm"
+	//城乡规划默认编码长度
+	defaultLength = "00000000000000000"
+	minLength     = 2
+	maxLength     = 17
+)
 
 var _year string
+var _length int
 
-//Start
-//@params year 抓取年份
-//@return 已经完成的数据（树形结构）
-func Start(year string) []Area {
+//Start 开始
+func Start(year string, length int) []Area {
+	if length < 2 {
+		_length = minLength
+	} else if length > maxLength {
+		length = maxLength
+	} else {
+		_length = length
+	}
 	_year = year
 	province := getProvince()
 	for i1, p := range province {
@@ -91,70 +104,83 @@ func fetch(host string, route string, reg string) []Area {
 	allString := compile.FindAllStringSubmatch(out, -1)
 	areas := make([]Area, len(allString))
 	for i, match := range allString {
-		areas[i] = Area{match[1], match[2], nil}
+		code := match[1]
+		for strings.HasSuffix(code, "0") && len(code) > _length {
+			code = strings.TrimSuffix(code, "0")
+		}
+		if len(code) < _length {
+			code += defaultLength[0:(_length - len(code))]
+		}
+
+		areas[i] = Area{code, match[2], nil}
 	}
 	return areas
 }
 
 func getBody(host string, route string) string {
-	client := &http.Client{}
 	for {
-		request, err := http.NewRequest("GET", host+route, nil)
+		req, err := request.CreateRequest("GET", host+route, "")
 		if err != nil {
 			fmt.Println("fatal error ", err.Error())
 			os.Exit(0)
 		}
-		request.Header.Add("Accept-Language", "")
-		request.Header.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36")
-		request.Header.Add("Accept-Charset", "GBK,utf-8;q=0.7,*;q=0.3")
-		response, err := client.Do(request)
-		if err != nil || response == nil {
+		headers := map[string]string{
+			"Accept-Language": "zh-CN,zh;q=0.9",
+			"User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36",
+			"Accept-Charset":  "GBK,utf-8;q=0.7,*;q=0.3",
+			"Accept-Encoding": "gzip, deflate",
+		}
+		req.SetHeaders(headers)
+		err = req.Do()
+		if err != nil {
 			fmt.Println("fatal error")
 			panic(err)
 		}
-		code := response.StatusCode
+		resp := req.GetResponse()
 		// 熔断或者超时或者404等
-		if code != 200 {
-			fmt.Printf("[Error] %d 休眠 30 秒重试 \n", code)
+		if resp.StatusCode != 200 && resp.StatusCode != 304 {
+			fmt.Printf("[Error] %d 休眠 30 秒重试 \n", resp.StatusCode)
 			time.Sleep(time.Duration(30) * time.Second)
 		} else {
-			body := response.Body
-			return readBody(body)
+
+			body, _ := req.GetBody()
+			utf8Body, _ := gbk2Utf8(body)
+			return string(utf8Body)
 		}
+
 	}
-	return ""
 }
 
-// 读取body
-func readBody(body io.ReadCloser) string {
-	byte2, _ := ioutil.ReadAll(body)
-	defer body.Close()
-	env := mahonia.NewDecoder("GBK")
-	out := env.ConvertString(string(byte2))
-	return out
-}
-
-// 写入json file
-// @params areas 地区
+//WriteJson 写入json file
 func WriteJson(area []Area) {
-	bytes, err := json.Marshal(area)
+	areaBytes, err := json.Marshal(area)
 	if err != nil {
 		fmt.Println(err.Error())
 		os.Exit(0)
 	}
-	fileName := "dist/area-%d.json"
+	fileName := "dist/area%s-%d.json"
 	currentTime := time.Now().UnixNano() / 1e6
-	fileName = fmt.Sprintf(fileName, currentTime)
-	err = ioutil.WriteFile(fileName, bytes, os.ModeAppend)
+	fileName = fmt.Sprintf(fileName, _year, currentTime)
+	err = ioutil.WriteFile(fileName, areaBytes, 0666)
 	if err != nil {
+		fmt.Printf("create file error: %s", err.Error())
 		return
 	}
-
 }
 
-// 地区
+//gbk2Utf8 gbk转utf-8
+func gbk2Utf8(body []byte) ([]byte, error) {
+	reader := transform.NewReader(bytes.NewReader(body), simplifiedchinese.GBK.NewDecoder())
+	d, e := ioutil.ReadAll(reader)
+	if e != nil {
+		return nil, e
+	}
+	return d, nil
+}
+
+//Area 地区
 type Area struct {
-	Code  string `json:"code"`     //编码
+	Code  string `json:"code "`    //编码
 	Name  string `json:"name"`     //名称
 	Areas []Area `json:"children"` //下级行政
 }

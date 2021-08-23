@@ -1,7 +1,20 @@
 package main
 
-import "Area-China/area"
+import (
+	"Area-China/area"
+	"flag"
+)
 
+var (
+	year string
+	size int
+)
+
+func init() {
+	flag.StringVar(&year, "year", "2020", "year")
+	flag.IntVar(&size, "size", 6, "code min length")
+}
 func main() {
-	area.Start("2020")
+	flag.Parse()
+	area.Start(year, size)
 }

@@ -2,4 +2,7 @@ module Area-China
 
 go 1.15
 
-require github.com/axgle/mahonia v0.0.0-20180208002826-3358181d7394
+require (
+	github.com/hb0730/go-request v1.0.1
+	golang.org/x/text v0.3.7
+)
