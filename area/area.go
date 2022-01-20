@@ -1,12 +1,13 @@
 package area
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/hb0730/go-request"
-	"golang.org/x/text/encoding/simplifiedchinese"
-	"golang.org/x/text/transform"
+	"github.com/go-resty/resty/v2"
+	"github.com/qiniu/iconv"
+	"github.com/tdewolff/minify/v2"
+	"github.com/tdewolff/minify/v2/html"
+	"golang.org/x/net/html/charset"
 	"io/ioutil"
 	"os"
 	"regexp"
@@ -17,11 +18,11 @@ import (
 const (
 	// 省级
 	// <td><a href='11.html'>北京市<br/></a></td>
-	pReg string = "<td><a href='(.*?).html'>(.*?)<br/></a></td>"
+	pReg string = `<td><a href="(.*?).html">(.*?)<br></a></td>`
 	// 地级，县级，乡级
-	casReg string = "<tr class='.*?'><td><a href=.*?>(.*?)</a></td><td><a href=.*?>(.*?)</a></td></tr>"
+	casReg string = `<tr class=".*?"><td><a href=.*?>(.*?)</a></td><td><a href=.*?>(.*?)</a></td></tr>`
 	//村级
-	vReg string = "<tr class='.*?'><td>(.*?)</td><td>.*?</td><td>(.*?)</td></tr>"
+	vReg string = `<tr class=".*?"><td>(.*?)</td><td>.*?</td><td>(.*?)</td></tr>`
 	host        = "http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm"
 
 	//城乡规划默认编码长度
@@ -29,6 +30,8 @@ const (
 	minLength     = 2
 	maxLength     = 17
 )
+
+var m = minify.New()
 
 var _year string
 var _length int
@@ -107,6 +110,9 @@ func getStreet(area *Area) []Area {
 // @params codeLen 编码长度
 func fetch(host string, route string, reg string) []Area {
 	out := getBody(host, route)
+	m.Add("text/html", &html.Minifier{KeepEndTags: true, KeepDocumentTags: true, KeepComments: true, KeepConditionalComments: true, KeepQuotes: true, KeepDefaultAttrVals: true})
+	out, _ = m.String("text/html", out)
+
 	compile := regexp.MustCompile(reg)
 	allString := compile.FindAllStringSubmatch(out, -1)
 	areas := make([]Area, len(allString))
@@ -125,35 +131,21 @@ func fetch(host string, route string, reg string) []Area {
 }
 
 func getBody(host string, route string) string {
+	var request = resty.New().R()
 	for {
-		req, err := request.CreateRequest("GET", host+route, "")
+		time.Sleep(time.Second * 2)
+		resp, err := request.Get(host + route)
 		if err != nil {
 			fmt.Println("fatal error ", err.Error())
 			os.Exit(0)
 		}
-		headers := map[string]string{
-			"Accept-Language": "zh-CN,zh;q=0.9",
-			"User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36",
-			"Accept-Charset":  "GBK,utf-8;q=0.7,*;q=0.3",
-			"Accept-Encoding": "gzip, deflate",
-		}
-		req.SetHeaders(headers)
-		time.Sleep(time.Second * 2)
-		err = req.Do()
-		if err != nil {
-			fmt.Println("fatal error")
-			panic(err)
-		}
-		resp := req.GetResponse()
 		// 熔断或者超时或者404等
-		if resp.StatusCode != 200 && resp.StatusCode != 304 {
-			fmt.Printf("[Error] %d 休眠 30 秒重试 \n", resp.StatusCode)
-			time.Sleep(time.Duration(30) * time.Second)
+		if resp.StatusCode() != 200 && resp.StatusCode() != 304 {
+			fmt.Printf("[Error] %d 休眠 30 秒重试 \n", resp.StatusCode())
+			time.Sleep(30 * time.Second)
 		} else {
-
-			body, _ := req.GetBody()
-			utf8Body, _ := gbk2Utf8(body)
-			return string(utf8Body)
+			//utf8Body, _ := gbk2Utf8(body)
+			return toUtf8(resp.Body(), resp.Header().Get("Content-Type"))
 		}
 
 	}
@@ -176,14 +168,68 @@ func WriteJson(area []Area) {
 	}
 }
 
-//gbk2Utf8 gbk转utf-8
-func gbk2Utf8(body []byte) ([]byte, error) {
-	reader := transform.NewReader(bytes.NewReader(body), simplifiedchinese.GBK.NewDecoder())
-	d, e := ioutil.ReadAll(reader)
-	if e != nil {
-		return nil, e
+/**
+ * 内部编码判断和转换，会自动判断传入的字符串编码，并将它转换成utf-8
+ */
+func toUtf8(content []byte, contentType string) string {
+	var htmlEncode string
+	contentBody := string(content)
+
+	if strings.Contains(contentType, "gbk") || strings.Contains(contentType, "gb2312") || strings.Contains(contentType, "gb18030") || strings.Contains(contentType, "windows-1252") {
+		htmlEncode = "gb18030"
+	} else if strings.Contains(contentType, "big5") {
+		htmlEncode = "big5"
+	} else if strings.Contains(contentType, "utf-8") {
+		htmlEncode = "utf-8"
 	}
-	return d, nil
+	if htmlEncode == "" {
+		//先尝试读取charset
+		reg := regexp.MustCompile(`(?is)<meta[^>]*charset\s*=["']?\s*([A-Za-z0-9\-]+)`)
+		match := reg.FindStringSubmatch(contentBody)
+		if len(match) > 1 {
+			contentType = strings.ToLower(match[1])
+			if strings.Contains(contentType, "gbk") || strings.Contains(contentType, "gb2312") || strings.Contains(contentType, "gb18030") || strings.Contains(contentType, "windows-1252") {
+				htmlEncode = "gb18030"
+			} else if strings.Contains(contentType, "big5") {
+				htmlEncode = "big5"
+			} else if strings.Contains(contentType, "utf-8") {
+				htmlEncode = "utf-8"
+			}
+		}
+		if htmlEncode == "" {
+			reg = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+			match = reg.FindStringSubmatch(contentBody)
+			if len(match) > 1 {
+				aa := match[1]
+				_, contentType, _ = charset.DetermineEncoding([]byte(aa), "")
+				htmlEncode = strings.ToLower(htmlEncode)
+				if strings.Contains(contentType, "gbk") || strings.Contains(contentType, "gb2312") || strings.Contains(contentType, "gb18030") || strings.Contains(contentType, "windows-1252") {
+					htmlEncode = "gb18030"
+				} else if strings.Contains(contentType, "big5") {
+					htmlEncode = "big5"
+				} else if strings.Contains(contentType, "utf-8") {
+					htmlEncode = "utf-8"
+				}
+			}
+		}
+	}
+	return Convert(content, htmlEncode, "utf-8")
+
+}
+
+// Convert 编码转换
+func Convert(src []byte, srcCode, targetCode string) string {
+	cd, err := iconv.Open(targetCode, srcCode)
+	if err != nil {
+		return ""
+	}
+	defer cd.Close()
+	var outbuf [512]byte
+	s1, _, err := cd.Conv(src, outbuf[:])
+	if err != nil {
+		return ""
+	}
+	return string(s1)
 }
 
 //Area 地区
