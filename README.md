@@ -4,9 +4,9 @@
 
 ## 依赖
 
-+ [text-simplifiedchinese](golang.org/x/text)
-+ [text-transform](golang.org/x/text)
-+ [go-request](github.com/hb0730/go-request)
++ [text-simplifiedchinese](https://golang.org/x/text)
++ [text-transform](https://golang.org/x/text)
++ [go-request](https://github.com/hb0730/go-request)
 
 ## 指令flag
 
