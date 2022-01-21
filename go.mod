@@ -1,4 +1,4 @@
-module Area-China
+module github.com/hb0730/area-china
 
 go 1.15
 

@@ -1,8 +1,0 @@
-## 2020/02/19
- * 修改code 长度问题: [部分数据地级市缺少](https://github.com/modood/Administrative-divisions-of-China/issues/57)
-## 2020/02/19
- * 访问502导致数据丢失
- 
- ## 2020/11/10
- * 更新数据2020
- * 使用go mod方式

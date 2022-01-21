@@ -2,6 +2,7 @@ package area
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/go-resty/resty/v2"
 	"github.com/qiniu/iconv"
@@ -9,11 +10,20 @@ import (
 	"github.com/tdewolff/minify/v2/html"
 	"golang.org/x/net/html/charset"
 	"io/ioutil"
-	"os"
 	"regexp"
 	"strings"
 	"time"
 )
+
+// Area  struct
+type Area struct {
+	// Code area code number
+	Code string `json:"code"`
+	// Name area name
+	Name string `json:"name"`
+	// Areas area children
+	Areas []Area `json:"children"`
+}
 
 const (
 	// 省级
@@ -31,146 +41,164 @@ const (
 	maxLength     = 17
 )
 
-var m = minify.New()
+// Spider fetch area  config
+type Spider struct {
+	year        string
+	_codeLength int
+	m           *minify.M
+}
 
-var _year string
-var _length int
+func NewSpider(year string, codeLength int) (Spider, error) {
+	s := Spider{}
+	if len(year) == 0 {
+		return s, errors.New("year missing")
+	}
+	s.year = year
+	//压缩
+	s.m = minify.New()
+	s.m.Add("text/html", &html.Minifier{KeepEndTags: true, KeepDocumentTags: true, KeepComments: true, KeepConditionalComments: true, KeepQuotes: true, KeepDefaultAttrVals: true})
+	// 编码长度
+	if codeLength < 2 {
+		s._codeLength = minLength
+	} else if codeLength > maxLength {
+		s._codeLength = maxLength
+	} else {
+		s._codeLength = codeLength
+	}
+	return s, nil
+}
 
 //Start 开始
-func Start(year string, length int) []Area {
-	if length < 2 {
-		_length = minLength
-	} else if length > maxLength {
-		length = maxLength
-	} else {
-		_length = length
+func (s Spider) Start() ([]Area, error) {
+	province, err := s.GetProvince("")
+	if err != nil {
+		return nil, err
 	}
-	_year = year
-	province := getProvince()
 	for i1, p := range province {
-		city := getCity(&p)
+		city, err := s.GetCity(&p)
+		if err != nil {
+			return nil, err
+		}
 		province[i1] = p
 		for i2, c := range city {
-			county := getCounty(&c)
+			county, err := s.GetCounty(&c)
+			if err != nil {
+				return nil, err
+			}
 			city[i2] = c
 			for _, v := range county {
 				fmt.Printf("%s %s %s \n", p.Name, c.Name, v.Name)
 			}
 		}
 	}
-	// 导出json
-	WriteJson(province)
-	return province
+	return province, nil
 }
 
-//getProvince 获取省级地区,编码规则是1~2位
-func getProvince() []Area {
-	// /2019/index.html
-	url := fmt.Sprintf("/%s/%s", _year, "index.html")
-	areas := fetch(host, url, pReg)
-	return areas
+// GetProvince 获取省级地区,编码规则是1~2位
+// 通过name只抓取当前数据
+func (s Spider) GetProvince(name string) ([]Area, error) {
+	url := fmt.Sprintf("/%s/%s", s.year, "index.html")
+	areas, err := s.fetch(host, url, pReg)
+	areaFilter := make([]Area, 0)
+	if len(areas) != 0 && len(name) != 0 {
+		for _, area := range areas {
+			if area.Name == name {
+				areaFilter = append(areaFilter, area)
+				return areaFilter, nil
+			}
+		}
+	}
+	return areas, err
 }
 
-//getCity 获取市级地区 编码规则是3~4位
-func getCity(area *Area) []Area {
+// GetCity 获取市级地区 编码规则是3~4位
+func (s Spider) GetCity(area *Area) ([]Area, error) {
+	if len(area.Code) == 0 {
+		return nil, fmt.Errorf("code missing")
+	}
 	pCode := area.Code[0:2]
 	//url := "/2019/" + cCode + ".html"
-	url := fmt.Sprintf("/%s/%s.html", _year, pCode)
-	areas := fetch(host, url, casReg)
+	url := fmt.Sprintf("/%s/%s.html", s.year, pCode)
+	areas, err := s.fetch(host, url, casReg)
 	area.Areas = areas
-	return areas
+	return areas, err
 }
 
-//getCounty 获取县级地区 编码规则是5~6位
-func getCounty(area *Area) []Area {
+// GetCounty 获取县级地区 编码规则是5~6位
+func (s Spider) GetCounty(area *Area) ([]Area, error) {
+	if len(area.Code) == 0 {
+		return nil, fmt.Errorf("code missing")
+	}
 	pCode := area.Code[0:2]
 	cCode := area.Code[0:4]
 	//url := "/2019/" + cCode + "/" + aCode + ".html"
-	url := fmt.Sprintf("/%s/%s/%s.html", _year, pCode, cCode)
-	areas := fetch(host, url, casReg)
+	url := fmt.Sprintf("/%s/%s/%s.html", s.year, pCode, cCode)
+	areas, err := s.fetch(host, url, casReg)
 	area.Areas = areas
-	return areas
+	return areas, err
 }
 
-//getStreet 抓取街道
-func getStreet(area *Area) []Area {
+// GetStreet 抓取街道
+func (s Spider) GetStreet(area *Area) ([]Area, error) {
+	if len(area.Code) == 0 {
+		return nil, fmt.Errorf("code missing")
+	}
 	pCode := area.Code[:2]
 	cCodeSuffix := area.Code[2:4]
 	//url:="/2019/11/01/110101.html"
-	url := fmt.Sprintf("/%s/%s/%s/%s.html", _year, pCode, cCodeSuffix, area.Code)
-	areas := fetch(host, url, casReg)
+	url := fmt.Sprintf("/%s/%s/%s/%s.html", s.year, pCode, cCodeSuffix, area.Code)
+	areas, err := s.fetch(host, url, casReg)
 	area.Areas = areas
-	return nil
+	return areas, err
 }
 
-// 获取网页地区信息
-// @params host
-// @params route path
-// @params reg 表达式
-// @params codeLen 编码长度
-func fetch(host string, route string, reg string) []Area {
-	out := getBody(host, route)
-	m.Add("text/html", &html.Minifier{KeepEndTags: true, KeepDocumentTags: true, KeepComments: true, KeepConditionalComments: true, KeepQuotes: true, KeepDefaultAttrVals: true})
-	out, _ = m.String("text/html", out)
-
+// 获取网页地区信息转换成结构信息
+func (s Spider) fetch(host string, route, reg string) ([]Area, error) {
+	content, err := s.getBody(host, route)
+	if err != nil {
+		return nil, err
+	}
+	//压缩
+	content, _ = s.m.String("text/html", content)
+	// 提取
 	compile := regexp.MustCompile(reg)
-	allString := compile.FindAllStringSubmatch(out, -1)
-	areas := make([]Area, len(allString))
-	for i, match := range allString {
+	area := compile.FindAllStringSubmatch(content, -1)
+	areas := make([]Area, len(area))
+	for i, match := range area {
 		code := match[1]
-		for strings.HasSuffix(code, "0") && len(code) > _length {
+		for strings.HasSuffix(code, "0") && len(code) > s._codeLength {
 			code = strings.TrimSuffix(code, "0")
 		}
-		if len(code) < _length {
-			code += defaultLength[0:(_length - len(code))]
+		if len(code) < s._codeLength {
+			code += defaultLength[0:(s._codeLength - len(code))]
 		}
 
 		areas[i] = Area{code, match[2], nil}
 	}
-	return areas
+	return areas, nil
 }
 
-func getBody(host string, route string) string {
-	var request = resty.New().R()
+func (s Spider) getBody(host, route string) (string, error) {
+	request := resty.New().R()
 	for {
-		time.Sleep(time.Second * 2)
-		resp, err := request.Get(host + route)
+		// 不频繁请求
+		time.Sleep(3 * time.Second)
+
+		response, err := request.Get(host + route)
 		if err != nil {
-			fmt.Println("fatal error ", err.Error())
-			os.Exit(0)
+			return "", fmt.Errorf("request error:%v", err.Error())
 		}
 		// 熔断或者超时或者404等
-		if resp.StatusCode() != 200 && resp.StatusCode() != 304 {
-			fmt.Printf("[Error] %d 休眠 30 秒重试 \n", resp.StatusCode())
+		if response.StatusCode() != 200 && response.StatusCode() != 304 {
+			fmt.Printf("[Error] %d 休眠 30 秒重试 \n", response.StatusCode())
 			time.Sleep(30 * time.Second)
 		} else {
-			//utf8Body, _ := gbk2Utf8(body)
-			return toUtf8(resp.Body(), resp.Header().Get("Content-Type"))
+			return toUtf8(response.Body(), response.Header().Get("Content-Type")), nil
 		}
-
 	}
 }
 
-//WriteJson 写入json file
-func WriteJson(area []Area) {
-	areaBytes, err := json.Marshal(area)
-	if err != nil {
-		fmt.Println(err.Error())
-		os.Exit(0)
-	}
-	fileName := "dist/area%s-%d.json"
-	currentTime := time.Now().UnixNano() / 1e6
-	fileName = fmt.Sprintf(fileName, _year, currentTime)
-	err = ioutil.WriteFile(fileName, areaBytes, 0666)
-	if err != nil {
-		fmt.Printf("create file error: %s", err.Error())
-		return
-	}
-}
-
-/**
- * 内部编码判断和转换，会自动判断传入的字符串编码，并将它转换成utf-8
- */
+// 内部编码判断和转换，会自动判断传入的字符串编码，并将它转换成utf-8
 func toUtf8(content []byte, contentType string) string {
 	var htmlEncode string
 	contentBody := string(content)
@@ -232,9 +260,18 @@ func Convert(src []byte, srcCode, targetCode string) string {
 	return string(s1)
 }
 
-//Area 地区
-type Area struct {
-	Code  string `json:"code "`    //编码
-	Name  string `json:"name"`     //名称
-	Areas []Area `json:"children"` //下级行政
+// WriteJson 写入json file
+func WriteJson(filename string, area []Area) error {
+	if len(filename) == 0 {
+		panic("filename missing...")
+	}
+	areaBytes, err := json.Marshal(area)
+	if err != nil {
+		return err
+	}
+	err = ioutil.WriteFile(filename, areaBytes, 0666)
+	if err != nil {
+		return fmt.Errorf("create file error: %s", err.Error())
+	}
+	return nil
 }
