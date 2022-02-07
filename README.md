@@ -29,9 +29,7 @@
 ```
 
 # 数据来源
-
-+ [统计用区划代码和城乡划分代码编制规则](http://www.stats.gov.cn/tjsj/tjbz/200911/t20091125_8667.html)
-+ [统计用区划和城乡划分代码](http://www.stats.gov.cn/tjsj/tjbz/tjyqhdmhcxhfdm/)
+* [全国行政区划信息查询平台](http://xzqh.mca.gov.cn/map)
 
 # thanks
 
